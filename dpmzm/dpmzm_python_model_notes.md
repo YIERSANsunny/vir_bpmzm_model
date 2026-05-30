@@ -333,19 +333,65 @@ N=1048576,
 RBW=\frac{1}{TimeWindow}=152587.890625\ \mathrm{Hz}.
 $$
 
-截图中的 VPI 电压源经过：
+截图中的 VPI 电压源按 `LowerArmPhaseSense` 分别映射。
+
+MZM 标准输出可写为：
+
+$$
+E_{out}
+=
+E_{in}
+\cos\left[
+\frac{\pi(V_{upper}-V_{lower})}{2V_\pi}
+\right]
+\exp\left[
+j\frac{\pi(V_{upper}+V_{lower})}{2V_\pi}
+\right].
+$$
+
+若 `LowerArmPhaseSense = NEGATIVE`，同一电压使上下臂相位反向：
+
+$$
+V_{upper}=V,\qquad V_{lower}=-V.
+$$
+
+因此：
+
+$$
+E_{out}=E_{in}\cos\left(\frac{\pi V}{V_\pi}\right),
+$$
+
+公共指数相位抵消。这适用于 I/Q 子调制器。
+
+若 `LowerArmPhaseSense = POSITIVE`，同一电压使上下臂相位同向：
+
+$$
+V_{upper}=V,\qquad V_{lower}=V.
+$$
+
+因此：
+
+$$
+E_{out}=E_{in}\exp\left(j\frac{\pi V}{V_\pi}\right),
+$$
+
+cos 幅度项为 1，仅留下公共相位。这适用于当前 VPI 截图里的父级 / 主调制器。
+
+因此 demo 中使用：
 
 ```python
-drive_gain = 2.0
+child_drive_gain = 2.0
+parent_drive_gain = 1.0
+rf_drive_gain = 2.0
 ```
 
-映射到 Python 模型的等效差分电压：
+映射到 Python 模型的等效电压：
 
 | VPI 参数 | Python 等效参数 |
 |---|---|
 | I 子 MZM DC = 2.5 V | `V_DCI = 5.0 V` |
 | Q 子 MZM DC = 2.5 V | `V_DCQ = 5.0 V` |
-| P 父级 DC = 1.25 V | `V_DCP = 2.5 V` |
+| P 父级 DC = 1.25 V | `V_DCP = 1.25 V` |
 | RF peak = 1.0 V | `V_RFI_amp = V_RFQ_amp = 2.0 V` |
 
 此时：
@@ -353,10 +399,10 @@ drive_gain = 2.0
 $$
 \phi_I=\phi_Q=\pi,
 \qquad
-\phi_P=\frac{\pi}{2},
+\phi_P=\frac{\pi}{4},
 $$
 
-对应 I/Q 子 MZM 最小传输点和父级正交点。
+对应 I/Q 子 MZM 最小传输点，以及父级 POSITIVE 模式下的公共相位移。
 
 ---
 

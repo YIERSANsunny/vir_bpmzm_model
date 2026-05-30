@@ -17,10 +17,10 @@ The default case mirrors the screenshot-level parameters:
 - I/Q DC sources: 2.5 V at the VPI drive source
 - Parent DC source: 1.25 V at the VPI drive source
 
-The VPI DiffMZ_DSM source values are treated as half of the effective
-differential phase-drive voltage, so the demo uses VPI_DIFF_DRIVE_GAIN = 2.
-If your VPI wiring uses a different convention, change that constant or pass
-``--drive-gain``.
+The I/Q child DiffMZ_DSM blocks use LowerArmPhaseSense=NEGATIVE, so their VPI
+source values are treated as half of the effective differential phase-drive
+voltage. The parent DiffMZ_DSM uses LowerArmPhaseSense=POSITIVE, so its source
+value is treated as common phase drive and is not doubled by default.
 """
 
 from __future__ import annotations
@@ -158,7 +158,9 @@ def _print_params(sim: SimulationResult) -> None:
 def run_demo(
     *,
     out_dir: str | Path = "artifacts/dpmzm_vpi_demo",
-    drive_gain: float = 2.0,
+    child_drive_gain: float = 2.0,
+    parent_drive_gain: float = 1.0,
+    rf_drive_gain: float | None = None,
     bit_rate: float = 10e9,
     samples_per_bit: int = 16,
     time_window_bits: int = 65536,
@@ -195,12 +197,14 @@ def run_demo(
         Pin_dBm=_dbm(0.010),
         R_load=1.0,
         pd_tap=float(pd_tap),
-        V_DCI=float(drive_gain) * float(vpi_source_child_dc),
-        V_DCQ=float(drive_gain) * float(vpi_source_child_dc),
-        V_DCP=float(drive_gain) * float(vpi_source_parent_dc),
+        V_DCI=float(child_drive_gain) * float(vpi_source_child_dc),
+        V_DCQ=float(child_drive_gain) * float(vpi_source_child_dc),
+        V_DCP=float(parent_drive_gain) * float(vpi_source_parent_dc),
         f_rf=float(f_rf),
-        V_RFI_amp=float(drive_gain) * float(vpi_source_rf_amp),
-        V_RFQ_amp=float(drive_gain) * float(vpi_source_rf_amp),
+        V_RFI_amp=float(rf_drive_gain if rf_drive_gain is not None else child_drive_gain)
+        * float(vpi_source_rf_amp),
+        V_RFQ_amp=float(rf_drive_gain if rf_drive_gain is not None else child_drive_gain)
+        * float(vpi_source_rf_amp),
         rf_phase_I=0.0,
         rf_phase_Q=float(np.deg2rad(float(rf_phase_q_deg))),
         vpi_compatible_dbm=bool(vpi_compatible_dbm),
@@ -237,7 +241,9 @@ def run_demo(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a VPI-style DPMZM demo case.")
     parser.add_argument("--out-dir", default="artifacts/dpmzm_vpi_demo")
-    parser.add_argument("--drive-gain", type=float, default=2.0)
+    parser.add_argument("--child-drive-gain", type=float, default=2.0)
+    parser.add_argument("--parent-drive-gain", type=float, default=1.0)
+    parser.add_argument("--rf-drive-gain", type=float, default=None)
     parser.add_argument("--bit-rate", type=float, default=10e9)
     parser.add_argument("--samples-per-bit", type=int, default=16)
     parser.add_argument("--time-window-bits", type=int, default=65536)
@@ -251,7 +257,9 @@ def main() -> int:
 
     run_demo(
         out_dir=args.out_dir,
-        drive_gain=args.drive_gain,
+        child_drive_gain=args.child_drive_gain,
+        parent_drive_gain=args.parent_drive_gain,
+        rf_drive_gain=args.rf_drive_gain,
         bit_rate=args.bit_rate,
         samples_per_bit=args.samples_per_bit,
         time_window_bits=args.time_window_bits,
