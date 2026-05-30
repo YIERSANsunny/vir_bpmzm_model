@@ -1,0 +1,33 @@
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Virtual envs
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.trae/
+
+# Training artifacts
+*.pt
+*.pth
+*.ckpt
+
+# Local artifacts (datasets/models)
+artifacts/*
+*.npz
+
+# Logs
+*.log
+
+# Allow tracking of best model and its eval stats
+!artifacts/dither_policy_dbm_hist_best.pt
+!artifacts/dither_policy_dbm_hist_best_eval.npz
