@@ -407,10 +407,10 @@ def simulate_dpmzm(
     ER_I_dB: float | None = None,
     ER_Q_dB: float | None = None,
     ER_P_dB: float | None = None,
-    IL_dB: float = 6.0,
-    IL_I_dB: float | None = None,
-    IL_Q_dB: float | None = None,
-    IL_P_dB: float | None = None,
+    IL_dB: float = 0.0,
+    IL_I_dB: float | None = 6.0,
+    IL_Q_dB: float | None = 6.0,
+    IL_P_dB: float | None = 6.0,
     Responsivity: float = 0.786,
     R_load: float = 50.0,
     Pin_dBm: float = 10.0,
@@ -451,7 +451,9 @@ def simulate_dpmzm(
 
     RF and dither inputs are generic additive voltages. Use explicit bias and
     waveform parameters to realize CS-SSB, OSSB, or other operating points.
-    ``SymbolRate`` is accepted for API symmetry with ``mzm.model.simulate_mzm``.
+    ``IL_I_dB``, ``IL_Q_dB``, and ``IL_P_dB`` are per-MZM block insertion
+    losses; ``IL_dB`` is reserved for extra link/common loss. ``SymbolRate`` is
+    accepted for API symmetry with ``mzm.model.simulate_mzm``.
     """
 
     _ = SymbolRate

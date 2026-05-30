@@ -10,7 +10,7 @@ The default case mirrors the screenshot-level parameters:
 - SampleRateDefault: 16 * BitRateDefault -> 160 GSa/s
 - TimeWindow: 65536 / BitRateDefault -> 6.5536 us
 - DiffMZ_DSM VpiDC/VpiRF: 5 V
-- Insertion loss: 6 dB
+- Insertion loss: 6 dB per DiffMZ_DSM block
 - Extinction ratio: 30 dB
 - PD/SignalAnalyzer electrical load convention: 1 ohm
 - RF sine: 10 GHz, amplitude 1.0 at the VPI drive source
@@ -139,6 +139,9 @@ def _print_params(sim: SimulationResult) -> None:
         "ER_Q_dB",
         "ER_P_dB",
         "IL_dB",
+        "IL_I_dB",
+        "IL_Q_dB",
+        "IL_P_dB",
         "V_DCI",
         "V_DCQ",
         "V_DCP",
@@ -193,7 +196,10 @@ def run_demo(
         ER_I_dB=30.0,
         ER_Q_dB=30.0,
         ER_P_dB=30.0,
-        IL_dB=6.0,
+        IL_dB=0.0,
+        IL_I_dB=6.0,
+        IL_Q_dB=6.0,
+        IL_P_dB=6.0,
         Pin_dBm=_dbm(0.010),
         R_load=1.0,
         pd_tap=float(pd_tap),

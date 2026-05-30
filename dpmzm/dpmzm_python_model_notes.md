@@ -117,7 +117,32 @@ $$
 L_{common}=L_{global}L_P,
 $$
 
-`L_global` 是全局插入损耗因子，`L_P` 是父级额外损耗因子，`L_I` / `L_Q` 是 I/Q 支路额外损耗因子。
+当前模型把插损放在各个 MZM block 内部：
+
+$$
+L_I=10^{-IL_{I,dB}/10},
+\qquad
+L_Q=10^{-IL_{Q,dB}/10},
+\qquad
+L_P=10^{-IL_{P,dB}/10}.
+$$
+
+`L_I` / `L_Q` 对应 I/Q 子调制器内部插损，`L_P` 对应父级 / 主调制器内部插损。`L_global` 对应额外公共链路损耗：
+
+$$
+L_{global}=10^{-IL_{dB}/10}.
+$$
+
+VPI demo 默认使用：
+
+```python
+IL_dB = 0.0
+IL_I_dB = 6.0
+IL_Q_dB = 6.0
+IL_P_dB = 6.0
+```
+
+也就是把截图中每个 `DiffMZ_DSM` block 的 `InsertionLoss=6 dB` 放到对应 MZM 内部，而不是在 DPMZM 总输出外只乘一次。
 
 代码对应为：
 
@@ -416,43 +441,26 @@ $$
 | 1f | -74 dBm |
 | 2f | -53 dBm |
 
-当前 Python 默认 `rf_phase_Q = 90°`、父级 ER 使用论文 `delta_P` 形式时：
+当前 Python 默认 `rf_phase_Q = 90°`、父级 ER 使用论文 `delta_P` 形式，并按 VPI 三个 `DiffMZ_DSM` block 分别施加 `IL_I/Q/P=6 dB` 时：
 
 | 分量 | Python | VPI | 差值 |
 |---|---:|---:|---:|
-| DC | -45.00 dBm | -49.00 dBm | +4.00 dB |
-| 1f | -65.01 dBm | -74.00 dBm | +8.99 dB |
-| 2f | -72.35 dBm | -53.00 dBm | -19.35 dB |
+| DC | -56.16 dBm | -49.00 dBm | -7.16 dB |
+| 1f | -79.19 dBm | -74.00 dBm | -5.19 dB |
+| 2f | -61.96 dBm | -53.00 dBm | -8.96 dB |
 
 这个差异说明：
 
-1. VPI 的时间窗 / RBW 已经对齐后，离散 DC/1f/2f marker 仍没有对齐；
-2. 差异主要不是采样率或 RBW 导致的；
-3. 更可疑的是 VPI 中 `PhaseShift`、`LowerArmPhaseSense`、DiffMZ 端口符号和当前 Python 相位定义之间的等效关系。
-
-诊断扫描发现，若使用：
-
-```python
-rf_phase_Q = 40 deg
-pd_tap = 0.69
-```
-
-则三点更接近 VPI：
-
-| 分量 | Python | VPI | 差值 |
-|---|---:|---:|---:|
-| DC | -48.23 dBm | -49.00 dBm | +0.78 dB |
-| 1f | -73.85 dBm | -74.00 dBm | +0.15 dB |
-| 2f | -53.89 dBm | -53.00 dBm | -0.89 dB |
-
-这只是诊断组合，不代表最终物理参数一定应取这些值。
+1. VPI 的时间窗 / RBW 已经对齐后，离散 DC/1f/2f marker 仍没有完全对齐；
+2. 插损放入各级 MZM 内部后，Python 结果从“偏高”变为“偏低”，说明 VPI `InsertionLoss=6 dB` 的实际作用位置/归一化方式可能不等价于简单的光场逐级相乘；
+3. 父级 `POSITIVE` 映射修正后，2f 已经处在同一量级，剩余差异更可能来自 VPI 的 block 内部归一化、`Power N` 模块和 SignalAnalyzer 功率口径。
 
 ---
 
 ## 8. 当前重点待核对项
 
-1. VPI `DiffMZ_DSM` 的 RF 端口输入电压是单臂电压、差分电压，还是内部再做 push-pull 映射；
-2. `LowerArmPhaseSense = NEGATIVE / POSITIVE` 对输出场相位的等效符号；
-3. 外部 `PhaseShift = 90 deg` 进入 Q 路后，在当前公式中应对应 `+90°`、`-90°`，还是叠加其它符号；
-4. VPI `Power N` 模块是否引入额外光功率比例；
-5. SignalAnalyzer 对 DC/1f/2f marker 的功率定义是 peak、RMS、单边谱还是双边谱。
+1. VPI `InsertionLoss=6 dB` 在 `DiffMZ_DSM` 内部的精确定义，是作用于整个 block、单个输出端口，还是已经包含分束/合束归一化；
+2. VPI `Power N` 模块是否引入额外光功率比例或归一化；
+3. SignalAnalyzer 对 DC/1f/2f marker 的功率定义是 peak、RMS、单边谱还是双边谱；
+4. VPI `DiffMZ_DSM` 的 RF 端口输入电压是单臂电压、差分电压，还是内部再做 push-pull 映射；
+5. 外部 `PhaseShift = 90 deg` 进入 Q 路后，是否还叠加了端口符号或内部上下臂符号。
