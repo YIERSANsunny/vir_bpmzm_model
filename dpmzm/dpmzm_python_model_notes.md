@@ -98,24 +98,20 @@ $$
 
 ## 3. 父级 / 主调制器合成模型
 
-当前 Python 模型把父级 DPMZM 合成写为论文形式：
+当前 Python 模型保留论文中的 `delta_P E_I` 非理想项，同时按 VPI 搭建方式加入各级插损：
 
 $$
 E_{out}(t)
 =
-\frac{E_{in}\sqrt{L_{common}}}{2}
+\frac{E_{in}\sqrt{L_{global}}}{2}
 \left[
 (1+\delta_P)\sqrt{L_I}\,H_I(t)
 +
-\gamma_P\sqrt{L_Q}\,H_Q(t)\exp(j\phi_P(t))
+\gamma_P\sqrt{L_Q L_P}\,H_Q(t)\exp(j\phi_P(t))
 \right].
 $$
 
-其中：
-
-$$
-L_{common}=L_{global}L_P,
-$$
+这里 `L_P` 只进入 Q 路，因为 VPI 结构里的父级 / 主调制器 `POSITIVE` block 是 Q 光路中的相位块；额外公共链路损耗才由 `L_global` 表示。
 
 当前模型把插损放在各个 MZM block 内部：
 
@@ -148,12 +144,14 @@ IL_P_dB = 6.0
 
 ```python
 field_sum = (
-    (1.0 + delta_P) * amp_I * H_I
-    + gamma_P * amp_Q * H_Q * np.exp(1j * phi_P)
+    (1.0 + delta_P) * H_I
+    + gamma_P * H_Q * H_P
 )
 
-E_out = E_in * amp_common * 0.5 * field_sum
+E_out = E_in * sqrt(L_global) * 0.5 * field_sum
 ```
+
+其中 `H_I`、`H_Q` 已经分别包含 I/Q 子 MZM 的 `IL_I_dB`、`IL_Q_dB`；`H_P=sqrt(L_P) exp(j phi_P)` 对应 Q 路上的 `POSITIVE` 父级相位 block。
 
 在默认模型中：
 
@@ -205,7 +203,7 @@ $$
 $$
 \delta_I=\delta_Q=\delta_P=0,\qquad
 \gamma_P=1,\qquad
-L_{common}=L_I=L_Q=1,
+L_{global}=L_I=L_Q=L_P=1,
 $$
 
 有：
@@ -441,26 +439,25 @@ $$
 | 1f | -74 dBm |
 | 2f | -53 dBm |
 
-当前 Python 默认 `rf_phase_Q = 90°`、父级 ER 使用论文 `delta_P` 形式，并按 VPI 三个 `DiffMZ_DSM` block 分别施加 `IL_I/Q/P=6 dB` 时：
+当前 Python 默认 `rf_phase_Q = 90°`、父级 ER 使用论文 `delta_P` 形式，并按 VPI 三个 `DiffMZ_DSM` block 分别施加 `IL_I/Q/P=6 dB` 时。这里 P block 的 `InsertionLoss=6 dB` 只作用在 Q 光路：
 
 | 分量 | Python | VPI | 差值 |
 |---|---:|---:|---:|
-| DC | -56.16 dBm | -49.00 dBm | -7.16 dB |
-| 1f | -79.19 dBm | -74.00 dBm | -5.19 dB |
-| 2f | -61.96 dBm | -53.00 dBm | -8.96 dB |
+| DC | -48.07 dBm | -49.00 dBm | +0.93 dB |
+| 1f | -73.19 dBm | -74.00 dBm | +0.81 dB |
+| 2f | -52.78 dBm | -53.00 dBm | +0.22 dB |
 
-这个差异说明：
+这个结果说明：
 
-1. VPI 的时间窗 / RBW 已经对齐后，离散 DC/1f/2f marker 仍没有完全对齐；
-2. 插损放入各级 MZM 内部后，Python 结果从“偏高”变为“偏低”，说明 VPI `InsertionLoss=6 dB` 的实际作用位置/归一化方式可能不等价于简单的光场逐级相乘；
-3. 父级 `POSITIVE` 映射修正后，2f 已经处在同一量级，剩余差异更可能来自 VPI 的 block 内部归一化、`Power N` 模块和 SignalAnalyzer 功率口径。
+1. VPI 的时间窗 / RBW、1 ohm 电谱口径、PD 响应度、RF/DC 电压幅度保持不变即可进入 1 dB 内；
+2. 关键修正是父级 `POSITIVE` block 的插损位置：它在 Q 光路上，而不是 DPMZM 总输出的公共损耗；
+3. 单个 `DiffMZ_DSM` 自检中，`Pin=10 dBm`、`InsertionLoss=6 dB`、最大传输点输出为 `4 dBm`，因此模型中的单个 MZM block 不再引入额外 3 dB / 6 dB 归一化损耗。
 
 ---
 
 ## 8. 当前重点待核对项
 
-1. VPI `InsertionLoss=6 dB` 在 `DiffMZ_DSM` 内部的精确定义，是作用于整个 block、单个输出端口，还是已经包含分束/合束归一化；
-2. VPI `Power N` 模块是否引入额外光功率比例或归一化；
-3. SignalAnalyzer 对 DC/1f/2f marker 的功率定义是 peak、RMS、单边谱还是双边谱；
-4. VPI `DiffMZ_DSM` 的 RF 端口输入电压是单臂电压、差分电压，还是内部再做 push-pull 映射；
-5. 外部 `PhaseShift = 90 deg` 进入 Q 路后，是否还叠加了端口符号或内部上下臂符号。
+1. VPI `Power N` 模块是否还有额外光功率比例或归一化；
+2. SignalAnalyzer 对 DC/1f/2f marker 的功率定义是 peak、RMS、单边谱还是双边谱；
+3. VPI `DiffMZ_DSM` 的 RF 端口输入电压是单臂电压、差分电压，还是内部再做 push-pull 映射；
+4. 外部 `PhaseShift = 90 deg` 进入 Q 路后，是否还叠加了端口符号或内部上下臂符号。

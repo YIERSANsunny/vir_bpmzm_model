@@ -1,12 +1,14 @@
 """DPMZM output model with RF/dither inputs, spectra, and PD noise.
 
-The model follows the derivation in ``DPMZM_output_model_rederived.md``:
+The ideal model follows the derivation in ``DPMZM_output_model_rederived.md``:
 
     E_out = E_in / 2 * [cos(phi_I/2) + cos(phi_Q/2) exp(j phi_P)]
 
-with optional non-ideal terms for I/Q/P finite extinction ratio. The
-implementation is intentionally NumPy-only so the physical output model remains
-usable even when PyTorch is not installed.
+with optional non-ideal terms for I/Q/P finite extinction ratio. VPI-style
+per-block insertion loss is applied inside the I/Q child MZM blocks and inside
+the POSITIVE parent phase block on the Q optical path. The implementation is
+intentionally NumPy-only so the physical output model remains usable even when
+PyTorch is not installed.
 """
 
 from __future__ import annotations
@@ -123,6 +125,45 @@ def gamma_from_er_db(er_db: float | None) -> float:
     return float((er_field_ratio - 1.0) / (er_field_ratio + 1.0))
 
 
+def mzm_block_output_field(
+    E_in: np.ndarray | complex | float,
+    phi: np.ndarray | float,
+    *,
+    lower_arm_phase_sense: str = "NEGATIVE",
+    delta: float = 0.0,
+    loss_factor: float = 1.0,
+) -> np.ndarray:
+    """Return the optical field after one VPI-style DiffMZ_DSM block.
+
+    ``phi`` is the effective phase used by the DPMZM model. For
+    ``NEGATIVE`` lower-arm phase sense it is the differential phase, so the
+    ideal transfer is ``cos(phi / 2)``. For ``POSITIVE`` sense the differential
+    cosine term collapses to one and the block acts as a common phase shifter
+    with ideal transfer ``exp(j phi)``.
+
+    ``loss_factor`` is the device fiber-in to fiber-out power transmission.
+    Thus a single ideal block with 6 dB insertion loss has a maximum output
+    power of ``Pin - 6 dB``.
+    """
+
+    if float(loss_factor) < 0:
+        raise ValueError("loss_factor must be >= 0")
+
+    sense = str(lower_arm_phase_sense).strip().upper()
+    phi_arr = np.asarray(phi, dtype=float)
+    E_arr = np.asarray(E_in, dtype=complex)
+    amp = np.sqrt(float(loss_factor))
+
+    if sense == "NEGATIVE":
+        transfer = np.cos(phi_arr / 2.0) + float(delta) * np.exp(1j * phi_arr / 2.0)
+    elif sense == "POSITIVE":
+        transfer = np.exp(1j * phi_arr)
+    else:
+        raise ValueError("lower_arm_phase_sense must be 'NEGATIVE' or 'POSITIVE'")
+
+    return E_arr * amp * transfer
+
+
 def dpmzm_output_field(
     E_in: np.ndarray | complex | float,
     phi_I: np.ndarray | float,
@@ -145,8 +186,10 @@ def dpmzm_output_field(
     thesis form E_out = E_I + E_Q exp(j phi_P) + delta_P E_I.
     ``gamma_P`` is kept as an optional compatibility multiplier on the Q branch;
     its default is 1 and it is not used for the parent ER by default.
-    Branch and parent loss factors are optical power factors; square roots are
-    applied internally to convert them to field amplitudes.
+    Branch and parent loss factors are optical power factors. I and Q branch
+    losses are applied to their child MZM blocks. The parent/main POSITIVE block
+    is applied to the Q branch before the final external 2x2 combiner, matching
+    the VPI build where the phase block is in the Q optical path.
     """
 
     phi_I_arr = np.asarray(phi_I, dtype=float)
@@ -159,18 +202,31 @@ def dpmzm_output_field(
     if float(branch_Q_loss_factor) < 0 or float(parent_loss_factor) < 0:
         raise ValueError("loss factors must be >= 0")
 
-    A = np.cos(phi_I_arr / 2.0)
-    B = np.cos(phi_Q_arr / 2.0)
-    H_I = A + float(delta_I) * np.exp(1j * phi_I_arr / 2.0)
-    H_Q = B + float(delta_Q) * np.exp(1j * phi_Q_arr / 2.0)
-
-    amp_I = np.sqrt(float(branch_I_loss_factor))
-    amp_Q = np.sqrt(float(branch_Q_loss_factor))
-    amp_common = np.sqrt(float(loss_factor) * float(parent_loss_factor))
+    H_I = mzm_block_output_field(
+        1.0,
+        phi_I_arr,
+        lower_arm_phase_sense="NEGATIVE",
+        delta=float(delta_I),
+        loss_factor=float(branch_I_loss_factor),
+    )
+    H_Q = mzm_block_output_field(
+        1.0,
+        phi_Q_arr,
+        lower_arm_phase_sense="NEGATIVE",
+        delta=float(delta_Q),
+        loss_factor=float(branch_Q_loss_factor),
+    )
+    H_P = mzm_block_output_field(
+        1.0,
+        phi_P_arr,
+        lower_arm_phase_sense="POSITIVE",
+        loss_factor=float(parent_loss_factor),
+    )
+    amp_common = np.sqrt(float(loss_factor))
 
     field_sum = (
-        (1.0 + float(delta_P)) * amp_I * H_I
-        + float(gamma_P) * amp_Q * H_Q * np.exp(1j * phi_P_arr)
+        (1.0 + float(delta_P)) * H_I
+        + float(gamma_P) * H_Q * H_P
     )
     return E_arr * amp_common * 0.5 * field_sum
 

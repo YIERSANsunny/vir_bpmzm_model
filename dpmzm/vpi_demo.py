@@ -20,7 +20,9 @@ The default case mirrors the screenshot-level parameters:
 The I/Q child DiffMZ_DSM blocks use LowerArmPhaseSense=NEGATIVE, so their VPI
 source values are treated as half of the effective differential phase-drive
 voltage. The parent DiffMZ_DSM uses LowerArmPhaseSense=POSITIVE, so its source
-value is treated as common phase drive and is not doubled by default.
+value is treated as common phase drive and is not doubled by default. In this
+VPI layout the parent/P block is in the Q optical path, so its insertion loss is
+applied to the Q branch before the final optical combiner.
 """
 
 from __future__ import annotations

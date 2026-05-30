@@ -10,6 +10,7 @@ from .model import (
     delta_from_er_db,
     dpmzm_output_field,
     dpmzm_transfer_power,
+    mzm_block_output_field,
     phase_to_voltage,
     simulate_dpmzm,
     voltage_to_phase,
@@ -49,6 +50,14 @@ def run_analytical_self_check() -> dict[str, Any]:
     phase_roundtrip_err = float(
         np.max(np.abs(phase_to_voltage(voltage_to_phase(v, 5.0), 5.0) - v))
     )
+    single_block_e = mzm_block_output_field(
+        np.sqrt(0.010),
+        0.0,
+        lower_arm_phase_sense="NEGATIVE",
+        loss_factor=10.0 ** (-6.0 / 10.0),
+    )
+    single_block_dbm = float(10.0 * np.log10((np.abs(single_block_e) ** 2) * 1000.0))
+    single_block_vpi_err_db = abs(single_block_dbm - 4.0)
 
     sim_suppressed = simulate_dpmzm(
         Fs=2e9,
@@ -81,6 +90,8 @@ def run_analytical_self_check() -> dict[str, Any]:
         "half_angle_max_err": half_angle_max_err,
         "zero_delta_field_err": zero_delta_field_err,
         "phase_roundtrip_err": phase_roundtrip_err,
+        "single_block_dbm": single_block_dbm,
+        "single_block_vpi_err_db": single_block_vpi_err_db,
         "suppressed_vs_max_ratio": suppressed_vs_max_ratio,
         "delta_30db": delta_from_er_db(30.0),
         "er_none_delta_I": sim_er_none.params["delta_I"],
@@ -90,6 +101,7 @@ def run_analytical_self_check() -> dict[str, Any]:
             half_angle_max_err < 1e-12
             and zero_delta_field_err < 1e-12
             and phase_roundtrip_err < 1e-12
+            and single_block_vpi_err_db < 1e-12
             and suppressed_vs_max_ratio < 1e-20
             and finite_spectra
         ),
