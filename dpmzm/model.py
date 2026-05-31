@@ -125,6 +125,22 @@ def gamma_from_er_db(er_db: float | None) -> float:
     return float((er_field_ratio - 1.0) / (er_field_ratio + 1.0))
 
 
+def _normalize_er_model(er_model: str) -> str:
+    model = str(er_model).strip().lower().replace("-", "_")
+    aliases = {
+        "vpi": "vpi",
+        "normalized": "vpi",
+        "normalised": "vpi",
+        "arm_imbalance": "vpi",
+        "thesis": "thesis",
+        "paper": "thesis",
+        "residual": "thesis",
+    }
+    if model not in aliases:
+        raise ValueError("er_model must be 'vpi' or 'thesis'")
+    return aliases[model]
+
+
 def mzm_block_output_field(
     E_in: np.ndarray | complex | float,
     phi: np.ndarray | float,
@@ -132,6 +148,7 @@ def mzm_block_output_field(
     lower_arm_phase_sense: str = "NEGATIVE",
     delta: float = 0.0,
     loss_factor: float = 1.0,
+    er_model: str = "vpi",
 ) -> np.ndarray:
     """Return the optical field after one VPI-style DiffMZ_DSM block.
 
@@ -142,20 +159,28 @@ def mzm_block_output_field(
     with ideal transfer ``exp(j phi)``.
 
     ``loss_factor`` is the device fiber-in to fiber-out power transmission.
-    Thus a single ideal block with 6 dB insertion loss has a maximum output
-    power of ``Pin - 6 dB``.
+    Thus a single block with 6 dB insertion loss has a maximum output power of
+    ``Pin - 6 dB``.
+
+    ``er_model='vpi'`` uses a normalized arm-imbalance model, preserving unity
+    maximum transfer while giving a finite residual at the minimum point.
+    ``er_model='thesis'`` keeps the earlier unnormalized residual-field form
+    from the derivation notes.
     """
 
     if float(loss_factor) < 0:
         raise ValueError("loss_factor must be >= 0")
 
     sense = str(lower_arm_phase_sense).strip().upper()
+    er_model_eff = _normalize_er_model(er_model)
     phi_arr = np.asarray(phi, dtype=float)
     E_arr = np.asarray(E_in, dtype=complex)
     amp = np.sqrt(float(loss_factor))
 
     if sense == "NEGATIVE":
         transfer = np.cos(phi_arr / 2.0) + float(delta) * np.exp(1j * phi_arr / 2.0)
+        if er_model_eff == "vpi":
+            transfer = transfer / (1.0 + float(delta))
     elif sense == "POSITIVE":
         transfer = np.exp(1j * phi_arr)
     else:
@@ -178,12 +203,15 @@ def dpmzm_output_field(
     branch_I_loss_factor: float = 1.0,
     branch_Q_loss_factor: float = 1.0,
     parent_loss_factor: float = 1.0,
+    er_model: str = "vpi",
 ) -> np.ndarray:
     """Return DPMZM output optical field envelope.
 
     ``delta_I`` and ``delta_Q`` model finite extinction ratio of the child MZMs.
-    ``delta_P`` models finite extinction ratio of the parent/main MZM using the
-    thesis form E_out = E_I + E_Q exp(j phi_P) + delta_P E_I.
+    With ``er_model='vpi'``, they are normalized so finite ER does not increase
+    the maximum transfer above the insertion-loss limit. With
+    ``er_model='thesis'``, ``delta_P`` also models parent/main MZM finite ER
+    using the thesis form E_out = E_I + E_Q exp(j phi_P) + delta_P E_I.
     ``gamma_P`` is kept as an optional compatibility multiplier on the Q branch;
     its default is 1 and it is not used for the parent ER by default.
     Branch and parent loss factors are optical power factors. I and Q branch
@@ -201,6 +229,7 @@ def dpmzm_output_field(
         raise ValueError("loss factors must be >= 0")
     if float(branch_Q_loss_factor) < 0 or float(parent_loss_factor) < 0:
         raise ValueError("loss factors must be >= 0")
+    er_model_eff = _normalize_er_model(er_model)
 
     H_I = mzm_block_output_field(
         1.0,
@@ -208,6 +237,7 @@ def dpmzm_output_field(
         lower_arm_phase_sense="NEGATIVE",
         delta=float(delta_I),
         loss_factor=float(branch_I_loss_factor),
+        er_model=er_model_eff,
     )
     H_Q = mzm_block_output_field(
         1.0,
@@ -215,17 +245,20 @@ def dpmzm_output_field(
         lower_arm_phase_sense="NEGATIVE",
         delta=float(delta_Q),
         loss_factor=float(branch_Q_loss_factor),
+        er_model=er_model_eff,
     )
     H_P = mzm_block_output_field(
         1.0,
         phi_P_arr,
         lower_arm_phase_sense="POSITIVE",
         loss_factor=float(parent_loss_factor),
+        er_model=er_model_eff,
     )
     amp_common = np.sqrt(float(loss_factor))
+    parent_leakage = 1.0 + float(delta_P) if er_model_eff == "thesis" else 1.0
 
     field_sum = (
-        (1.0 + float(delta_P)) * H_I
+        parent_leakage * H_I
         + float(gamma_P) * H_Q * H_P
     )
     return E_arr * amp_common * 0.5 * field_sum
@@ -244,6 +277,7 @@ def dpmzm_transfer_power(
     branch_I_loss_factor: float = 1.0,
     branch_Q_loss_factor: float = 1.0,
     parent_loss_factor: float = 1.0,
+    er_model: str = "vpi",
 ) -> np.ndarray:
     """Return normalized optical power transfer |E_out|^2 / |E_in|^2."""
 
@@ -260,6 +294,7 @@ def dpmzm_transfer_power(
         branch_I_loss_factor=float(branch_I_loss_factor),
         branch_Q_loss_factor=float(branch_Q_loss_factor),
         parent_loss_factor=float(parent_loss_factor),
+        er_model=er_model,
     )
     return np.abs(E_out) ** 2
 
@@ -404,6 +439,7 @@ def _bias_scan(
     branch_I_loss_factor: float,
     branch_Q_loss_factor: float,
     parent_loss_factor: float,
+    er_model: str,
 ) -> BiasScanResult:
     V_I_scan = np.linspace(-2.0 * float(Vpi_I), 2.0 * float(Vpi_I), 1000)
     V_Q_scan = np.linspace(-2.0 * float(Vpi_Q), 2.0 * float(Vpi_Q), 1000)
@@ -427,6 +463,7 @@ def _bias_scan(
             branch_I_loss_factor=float(branch_I_loss_factor),
             branch_Q_loss_factor=float(branch_Q_loss_factor),
             parent_loss_factor=float(parent_loss_factor),
+            er_model=er_model,
         )
         return np.abs(E) ** 2 * 1000.0
 
@@ -500,6 +537,7 @@ def simulate_dpmzm(
     delta_Q: float | None = None,
     delta_P: float | None = None,
     gamma_P: float | None = None,
+    er_model: str = "vpi",
     vpi_compatible_dbm: bool = False,
     rng_seed: int | None = None,
 ) -> SimulationResult:
@@ -508,8 +546,10 @@ def simulate_dpmzm(
     RF and dither inputs are generic additive voltages. Use explicit bias and
     waveform parameters to realize CS-SSB, OSSB, or other operating points.
     ``IL_I_dB``, ``IL_Q_dB``, and ``IL_P_dB`` are per-MZM block insertion
-    losses; ``IL_dB`` is reserved for extra link/common loss. ``SymbolRate`` is
-    accepted for API symmetry with ``mzm.model.simulate_mzm``.
+    losses; ``IL_dB`` is reserved for extra link/common loss. ``er_model='vpi'``
+    matches VPI's normalized finite-extinction-ratio behavior. ``er_model`` can
+    be set to ``'thesis'`` to reproduce the earlier residual-field derivation.
+    ``SymbolRate`` is accepted for API symmetry with ``mzm.model.simulate_mzm``.
     """
 
     _ = SymbolRate
@@ -517,6 +557,7 @@ def simulate_dpmzm(
         raise ValueError("Fs and T_total must be > 0")
     if float(pd_tap) <= 0:
         raise ValueError("pd_tap must be > 0")
+    er_model_eff = _normalize_er_model(er_model)
 
     Vpi_I_eff = _resolve(Vpi_I, Vpi)
     Vpi_Q_eff = _resolve(Vpi_Q, Vpi)
@@ -603,6 +644,7 @@ def simulate_dpmzm(
         branch_I_loss_factor=branch_I_loss_factor,
         branch_Q_loss_factor=branch_Q_loss_factor,
         parent_loss_factor=parent_loss_factor,
+        er_model=er_model_eff,
     )
 
     P_opt_inst_W = np.abs(E_out) ** 2
@@ -646,6 +688,7 @@ def simulate_dpmzm(
         branch_I_loss_factor=branch_I_loss_factor,
         branch_Q_loss_factor=branch_Q_loss_factor,
         parent_loss_factor=parent_loss_factor,
+        er_model=er_model_eff,
     )
 
     params = {
@@ -667,6 +710,7 @@ def simulate_dpmzm(
         "delta_Q": float(delta_Q_eff),
         "delta_P": float(delta_P_eff),
         "gamma_P": float(gamma_P_eff),
+        "er_model": er_model_eff,
         "V_DCI": float(V_DCI_eff),
         "V_DCQ": float(V_DCQ_eff),
         "V_DCP": float(V_DCP_eff),

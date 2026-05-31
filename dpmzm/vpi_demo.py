@@ -22,7 +22,8 @@ source values are treated as half of the effective differential phase-drive
 voltage. The parent DiffMZ_DSM uses LowerArmPhaseSense=POSITIVE, so its source
 value is treated as common phase drive and is not doubled by default. In this
 VPI layout the parent/P block is in the Q optical path, so its insertion loss is
-applied to the Q branch before the final optical combiner.
+applied to the Q branch before the final optical combiner. Finite extinction
+ratio uses the normalized VPI-style arm-imbalance model by default.
 """
 
 from __future__ import annotations
@@ -152,6 +153,7 @@ def _print_params(sim: SimulationResult) -> None:
         "V_RFQ_amp",
         "rf_phase_I",
         "rf_phase_Q",
+        "er_model",
         "RBW_Hz",
         "vpi_compatible_dbm",
     ]
@@ -177,6 +179,7 @@ def run_demo(
     vpi_source_rf_amp: float = 1.0,
     rf_phase_q_deg: float = 90.0,
     pd_tap: float = 1.0,
+    er_model: str = "vpi",
     vpi_compatible_dbm: bool = True,
 ) -> tuple[SimulationResult, dict[str, float]]:
     """Run the screenshot-style VPI comparison case and save plots."""
@@ -215,6 +218,7 @@ def run_demo(
         * float(vpi_source_rf_amp),
         rf_phase_I=0.0,
         rf_phase_Q=float(np.deg2rad(float(rf_phase_q_deg))),
+        er_model=er_model,
         vpi_compatible_dbm=bool(vpi_compatible_dbm),
         rng_seed=0,
     )
@@ -260,6 +264,7 @@ def main() -> int:
     parser.add_argument("--f-rf", type=float, default=10e9)
     parser.add_argument("--rf-phase-q-deg", type=float, default=90.0)
     parser.add_argument("--pd-tap", type=float, default=1.0)
+    parser.add_argument("--er-model", choices=("vpi", "thesis"), default="vpi")
     parser.add_argument("--no-vpi-compatible-dbm", action="store_true")
     args = parser.parse_args()
 
@@ -276,6 +281,7 @@ def main() -> int:
         f_rf=args.f_rf,
         rf_phase_q_deg=args.rf_phase_q_deg,
         pd_tap=args.pd_tap,
+        er_model=args.er_model,
         vpi_compatible_dbm=not bool(args.no_vpi_compatible_dbm),
     )
     return 0

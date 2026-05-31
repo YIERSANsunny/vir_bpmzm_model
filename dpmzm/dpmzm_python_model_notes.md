@@ -56,21 +56,27 @@ $$
 H_Q^{ideal}(t)=\cos\left(\frac{\phi_Q(t)}{2}\right).
 $$
 
-考虑有限消光比后，当前模型使用文档推导中的形式：
+考虑有限消光比后，默认 `er_model="vpi"` 使用归一化臂不平衡形式：
 
 $$
-H_I(t)=
+H_I^{vpi}(t)=
+\frac{
 \cos\left(\frac{\phi_I(t)}{2}\right)
 +
-\delta_I \exp\left(j\frac{\phi_I(t)}{2}\right),
+\delta_I \exp\left(j\frac{\phi_I(t)}{2}\right)
+}{1+\delta_I},
 $$
 
 $$
-H_Q(t)=
+H_Q^{vpi}(t)=
+\frac{
 \cos\left(\frac{\phi_Q(t)}{2}\right)
 +
-\delta_Q \exp\left(j\frac{\phi_Q(t)}{2}\right).
+\delta_Q \exp\left(j\frac{\phi_Q(t)}{2}\right)
+}{1+\delta_Q}.
 $$
+
+这个归一化保证最大透射点仍为 1，不会因为有限消光比项而超过 `InsertionLoss` 定义的最大输出。若需要复现早期论文残余项，可显式设置 `er_model="thesis"`，此时分母 `1+\delta_k` 不使用。
 
 消光比到 `delta` 的换算为：
 
@@ -98,16 +104,16 @@ $$
 
 ## 3. 父级 / 主调制器合成模型
 
-当前 Python 模型保留论文中的 `delta_P E_I` 非理想项，同时按 VPI 搭建方式加入各级插损：
+当前 Python 默认模型按 VPI 搭建方式加入各级插损：
 
 $$
 E_{out}(t)
 =
 \frac{E_{in}\sqrt{L_{global}}}{2}
 \left[
-(1+\delta_P)\sqrt{L_I}\,H_I(t)
+\sqrt{L_I}\,H_I^{vpi}(t)
 +
-\gamma_P\sqrt{L_Q L_P}\,H_Q(t)\exp(j\phi_P(t))
+\gamma_P\sqrt{L_Q L_P}\,H_Q^{vpi}(t)\exp(j\phi_P(t))
 \right].
 $$
 
@@ -144,14 +150,14 @@ IL_P_dB = 6.0
 
 ```python
 field_sum = (
-    (1.0 + delta_P) * H_I
+    H_I
     + gamma_P * H_Q * H_P
 )
 
 E_out = E_in * sqrt(L_global) * 0.5 * field_sum
 ```
 
-其中 `H_I`、`H_Q` 已经分别包含 I/Q 子 MZM 的 `IL_I_dB`、`IL_Q_dB`；`H_P=sqrt(L_P) exp(j phi_P)` 对应 Q 路上的 `POSITIVE` 父级相位 block。
+其中 `H_I`、`H_Q` 已经分别包含 I/Q 子 MZM 的 `IL_I_dB`、`IL_Q_dB` 和 VPI 风格有限消光比归一化；`H_P=sqrt(L_P) exp(j phi_P)` 对应 Q 路上的 `POSITIVE` 父级相位 block。
 
 在默认模型中：
 
@@ -163,7 +169,13 @@ $$
 
 ### 3.1 父级有限消光比
 
-父级 / 主调制器消光比当前用论文中的 `delta_P E_{I,out}` 项表示：
+父级 / 主调制器消光比在 VPI 默认模式下不再引入 `delta_P E_{I,out}` 项。原因是 `LowerArmPhaseSense=POSITIVE` 时上下臂同相，有限臂不平衡归一化后只剩公共相位：
+
+$$
+H_P^{vpi}(t)=\sqrt{L_P}\exp(j\phi_P(t)).
+$$
+
+若显式设置 `er_model="thesis"`，父级 / 主调制器消光比才使用论文中的 `delta_P E_{I,out}` 项：
 
 $$
 \delta_P=
@@ -184,7 +196,7 @@ $$
 \delta_P\approx 0.032655.
 $$
 
-因此默认父级合成等价于：
+因此 `er_model="thesis"` 下父级合成等价于：
 
 $$
 E_{out}(t)
@@ -439,19 +451,20 @@ $$
 | 1f | -74 dBm |
 | 2f | -53 dBm |
 
-当前 Python 默认 `rf_phase_Q = 90°`、父级 ER 使用论文 `delta_P` 形式，并按 VPI 三个 `DiffMZ_DSM` block 分别施加 `IL_I/Q/P=6 dB` 时。这里 P block 的 `InsertionLoss=6 dB` 只作用在 Q 光路：
+当前 Python 默认 `er_model="vpi"`、`rf_phase_Q = 90°`，并按 VPI 三个 `DiffMZ_DSM` block 分别施加 `IL_I/Q/P=6 dB` 时。这里 P block 的 `InsertionLoss=6 dB` 只作用在 Q 光路：
 
 | 分量 | Python | VPI | 差值 |
 |---|---:|---:|---:|
-| DC | -48.07 dBm | -49.00 dBm | +0.93 dB |
-| 1f | -73.19 dBm | -74.00 dBm | +0.81 dB |
-| 2f | -52.78 dBm | -53.00 dBm | +0.22 dB |
+| DC | -49.08 dBm | -49.00 dBm | -0.08 dB |
+| 1f | -74.03 dBm | -74.00 dBm | -0.03 dB |
+| 2f | -53.85 dBm | -53.00 dBm | -0.85 dB |
 
 这个结果说明：
 
-1. VPI 的时间窗 / RBW、1 ohm 电谱口径、PD 响应度、RF/DC 电压幅度保持不变即可进入 1 dB 内；
+1. VPI 的时间窗 / RBW、1 ohm 电谱口径、PD 响应度、RF/DC 电压幅度保持不变即可基本对齐；
 2. 关键修正是父级 `POSITIVE` block 的插损位置：它在 Q 光路上，而不是 DPMZM 总输出的公共损耗；
-3. 单个 `DiffMZ_DSM` 自检中，`Pin=10 dBm`、`InsertionLoss=6 dB`、最大传输点输出为 `4 dBm`，因此模型中的单个 MZM block 不再引入额外 3 dB / 6 dB 归一化损耗。
+3. 第二个关键修正是有限消光比归一化：`ER=30 dB` 不应提高最大透射点；
+4. 单个 `DiffMZ_DSM` 自检中，`Pin=10 dBm`、`InsertionLoss=6 dB`、最大传输点输出为 `4 dBm`，因此模型中的单个 MZM block 不再引入额外 3 dB / 6 dB 归一化损耗。
 
 ---
 
